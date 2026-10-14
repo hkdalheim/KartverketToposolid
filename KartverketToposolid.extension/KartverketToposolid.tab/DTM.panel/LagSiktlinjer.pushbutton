@@ -144,7 +144,8 @@ except Exception as ex:
 try:
     from Autodesk.Revit.DB import (
         FilteredElementCollector, BuiltInCategory, BuiltInParameter,
-        UnitUtils, XYZ, Transaction, ElementId, Level,
+    UnitUtils, XYZ, Transaction, ElementId, Level,
+    Line,
     )
 except Exception as ex:
     _feil_og_avslutt("Importere grunnleggende Autodesk.Revit.DB-typer", ex)
@@ -165,6 +166,8 @@ try:
 except Exception:
     _TOPOSOLID_OK = False  # haandteres med tydelig norsk feilmelding senere, ikke her
 
+try:
+from Autodesk.Revit.UI.Selection import ObjectType
 # ------------------------------------------------------------------
 #  Nettverk / geodata-avhengigheter (krever engangsoppsett, se README)
 # ------------------------------------------------------------------
@@ -616,43 +619,91 @@ def do_convert_to_wgs84(payload):
 
 
 def do_lag_toposolid(doc, base_pos, payload):
+
     epsg = payload["epsg"]
     vert = payload.get("vert", 0.0) or 0.0
     nn54_korr = payload.get("nn54_korr", False)
+
     mid_e = payload["mid_e"]
     mid_n = payload["mid_n"]
+
     null_e = payload["null_e"]
     null_n = payload["null_n"]
+
     radius = payload["radius"]
     tetthet = payload["tetthet"]
+
     relativ_z = payload["relativ_z"]
+
     utsnitt_form = payload.get("utsnitt_form", "kvadrat")
 
     nn54_offset = None
     warning = None
+
     if nn54_korr and er_hpcs(epsg):
+
         try:
+
             lon, lat = _hpcs_til_wgs84(mid_e, mid_n)
+
             nn54_offset = nn2000_til_nn54_offset(lon, lat)
+
             vert = vert + nn54_offset
+
         except Exception as ge:
-            warning = "NN54-korreksjon kunne ikke beregnes: {}".format(str(ge)[:100])
+
+            warning = "NN54-korreksjon kunne ikke beregnes: {}".format(
+                str(ge)[:100]
+            )
 
     punkter = generer_punkter(
-        epsg_inn=epsg, midtpunkt_e=mid_e, midtpunkt_n=mid_n,
-        radius=radius, tetthet=tetthet,
-        nullpunkt_e=null_e, nullpunkt_n=null_n, relativ_z=relativ_z,
-        vert_offset=vert, utsnitt_form=utsnitt_form,
+        epsg_inn=epsg,
+        midtpunkt_e=mid_e,
+        midtpunkt_n=mid_n,
+        radius=radius,
+        tetthet=tetthet,
+        nullpunkt_e=null_e,
+        nullpunkt_n=null_n,
+        relativ_z=relativ_z,
+        vert_offset=vert,
+        utsnitt_form=utsnitt_form,
     )
 
-    opprett_toposolid(doc, punkter, base_pos)
+    uidoc = __revit__.ActiveUIDocument
+
+    ref = uidoc.Selection.PickObject(
+        ObjectType.PointOnElement,
+        "Velg trafostasjon"
+    )
+
+    target = ref.GlobalPoint
+
+    print("")
+    print("===================================")
+    print("SIKTLINJE TEST")
+    print("===================================")
+    print("Antall terrengpunkter: {}".format(len(punkter)))
+    print("Målpunkt:")
+    print(target)
+
+    if len(punkter) > 0:
+        print("Første terrengpunkt:")
+        print(punkter[0])
 
     z_vals = [p[2] for p in punkter]
-    resultat = {"antall": len(punkter), "min_z": min(z_vals), "max_z": max(z_vals)}
+
+    resultat = {
+        "antall": len(punkter),
+        "min_z": min(z_vals),
+        "max_z": max(z_vals)
+    }
+
     if nn54_offset is not None:
         resultat["nn54_offset"] = round(nn54_offset, 4)
+
     if warning:
         resultat["warning"] = warning
+
     return resultat
 
 
